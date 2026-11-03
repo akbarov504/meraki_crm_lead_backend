@@ -2,6 +2,9 @@ import requests
 from config import Config
 
 def get_lead_details(lead_id):
+    if not Config.META_PAGE_ACCESS_TOKEN:
+        raise ValueError("META_PAGE_ACCESS_TOKEN is not configured")
+
     url = (
         f"https://graph.facebook.com/"
         f"{Config.META_GRAPH_API_VERSION}/{lead_id}"
@@ -18,19 +21,29 @@ def get_lead_details(lead_id):
         timeout=30
     )
 
-    response.raise_for_status()
-    return response.json()
+    if not response.ok:
+        raise Exception(
+            f"Meta API error: {response.status_code} "
+            f"{response.text[:1000]}"
+        )
+
+    data = response.json()
+
+    if not data.get("id"):
+        raise ValueError(
+            f"Meta returned invalid lead data: {data}"
+        )
+
+    return data
 
 def extract_lead_data(lead):
-    field_data = lead.get("field_data", [])
+    result = {}
 
-    data = {}
-
-    for field in field_data:
-        name = field.get("name", "").lower()
+    for field in lead.get("field_data", []):
+        name = field.get("name", "").strip().lower()
         values = field.get("values", [])
 
         if values:
-            data[name] = values[0]
+            result[name] = values[0]
 
-    return data
+    return result

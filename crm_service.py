@@ -1,6 +1,18 @@
 import requests
-from config import Config
 from datetime import datetime, timezone
+from config import Config
+
+def normalize_fields(lead):
+    result = {}
+
+    for field in lead.get("field_data", []):
+        name = field.get("name", "").strip().lower()
+        values = field.get("values", [])
+
+        if values:
+            result[name] = str(values[0]).strip()
+
+    return result
 
 def get_field(data, *names):
     for name in names:
@@ -11,20 +23,45 @@ def get_field(data, *names):
 
     return ""
 
-def create_crm_payload(lead, page_id=None):
-    data = extract_fields(lead)
+def find_field_by_keyword(data, *keywords):
+    for name, value in data.items():
+        if not value:
+            continue
 
-    full_name = get_field(
+        if any(keyword in name for keyword in keywords):
+            return str(value).strip()
+
+    return ""
+
+def extract_fields(lead):
+    return normalize_fields(lead)
+
+def get_lead_name(data):
+    name = get_field(
         data,
         "full_name",
-        "name"
+        "name",
+        "укажите_ваше_имя_и_фамилию:"
     )
 
-    if not full_name:
-        first_name = get_field(data, "first_name")
-        last_name = get_field(data, "last_name")
-        full_name = f"{first_name} {last_name}".strip()
+    if name:
+        return name
 
+    name = find_field_by_keyword(
+        data,
+        "укажите_ваше_имя",
+        "full_name"
+    )
+
+    if name:
+        return name
+
+    first_name = get_field(data, "first_name")
+    last_name = get_field(data, "last_name")
+
+    return f"{first_name} {last_name}".strip()
+
+def get_lead_phone(data):
     phone = get_field(
         data,
         "phone_number",
@@ -32,30 +69,81 @@ def create_crm_payload(lead, page_id=None):
         "mobile_number"
     )
 
-    email = get_field(
+    if phone:
+        return phone
+
+    return find_field_by_keyword(
+        data,
+        "телефон",
+        "phone"
+    )
+
+def get_lead_email(data):
+    return get_field(
         data,
         "email",
         "e_mail"
     )
 
+
+def format_lead_answers(data):
+    lines = []
+
+    excluded_fields = {
+        "full_name",
+        "name",
+        "first_name",
+        "last_name",
+        "phone_number",
+        "phone",
+        "mobile_number",
+        "email",
+        "e_mail",
+        "укажите_ваше_имя_и_фамилию:",
+        "укажите_ваш_действующий_номер_телефона_для_связи:"
+    }
+
+    for field_name, value in data.items():
+        if field_name in excluded_fields:
+            continue
+
+        if not value:
+            continue
+
+        readable_name = field_name.replace("_", " ").strip()
+
+        lines.append(
+            f"{readable_name}: {value}"
+        )
+
+    return "\n".join(lines)
+
+
+def create_crm_payload(lead, page_id=None):
+    data = extract_fields(lead)
+
+    full_name = get_lead_name(data)
+    phone = get_lead_phone(data)
+    email = get_lead_email(data)
+
     city = get_field(data, "city")
-    message = get_field(
-        data,
-        "message",
-        "your_message",
-        "description"
-    )
+
+    answers = format_lead_answers(data)
 
     created_time = lead.get("created_time")
 
     if created_time:
-        date = datetime.fromisoformat(
-            created_time.replace("Z", "+00:00")
+        date = datetime.strptime(
+            created_time,
+            "%Y-%m-%dT%H:%M:%S%z"
         ).strftime("%Y-%m-%d %H:%M:%S")
     else:
-        date = datetime.now(timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        date = datetime.now(timezone.utc)
+
+    message = "Instagram reklamasidan yangi murojaat."
+
+    if answers:
+        message += "\n\nLead form javoblari:\n" + answers
 
     return {
         "MusteriAdiSoyadi": full_name,
@@ -67,7 +155,7 @@ def create_crm_payload(lead, page_id=None):
         "IletisimSehir": city,
         "IletisimIlce": "",
         "IletisimSemt": "",
-        "MesajNotu": message or "Instagram reklamidan yangi murojaat.",
+        "MesajNotu": message,
         "Tarih": date,
         "MailIstiyorMu": bool(email),
         "MusteriKaynagiID": 16,
@@ -95,19 +183,13 @@ def create_crm_payload(lead, page_id=None):
         "InfoFormGelisYeri5": ""
     }
 
-def extract_fields(lead):
-    result = {}
-
-    for field in lead.get("field_data", []):
-        name = field.get("name", "").lower()
-        values = field.get("values", [])
-
-        if values:
-            result[name] = values[0]
-
-    return result
-
 def send_to_crm(payload):
+    if not Config.CRM_API_URL:
+        raise ValueError("CRM_API_URL is not configured")
+
+    if not Config.CRM_API_KEY:
+        raise ValueError("CRM_API_KEY is not configured")
+
     headers = {
         Config.CRM_API_KEY_HEADER: Config.CRM_API_KEY,
         "Content-Type": "application/json",
@@ -121,9 +203,18 @@ def send_to_crm(payload):
         timeout=30
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise Exception(
+            f"CRM HTTP error: {response.status_code} "
+            f"{response.text[:1000]}"
+        )
 
-    result = response.json()
+    try:
+        result = response.json()
+    except ValueError:
+        raise Exception(
+            f"CRM returned invalid JSON: {response.text[:1000]}"
+        )
 
     if isinstance(result, list):
         result = result[0] if result else {}
