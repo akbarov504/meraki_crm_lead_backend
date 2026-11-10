@@ -155,6 +155,11 @@ def process_instagram_messages(entry):
 @app.route("/webhook/meta", methods=["POST"])
 def receive_webhook():
     raw_body = request.get_data()
+
+    logger.info("🔥 META WEBHOOK REQUEST KELDI")
+    logger.info("Webhook object: %s", request.args)
+    logger.info("Webhook body: %s", raw_body.decode("utf-8", errors="replace"))
+
     signature = request.headers.get("X-Hub-Signature-256")
 
     if not verify_meta_signature(raw_body, signature):
