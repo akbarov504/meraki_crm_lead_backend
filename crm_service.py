@@ -118,7 +118,6 @@ def format_lead_answers(data):
 
     return "\n".join(lines)
 
-
 def create_crm_payload(lead, page_id=None):
     data = extract_fields(lead)
 
@@ -223,3 +222,71 @@ def send_to_crm(payload):
         raise Exception(f"CRM rejected lead: {result}")
 
     return result
+
+def create_instagram_dm_payload(
+    username,
+    phone,
+    message_text,
+    sender_id,
+    recipient_id,
+    message_id,
+    timestamp
+):
+    """
+    Instagram Direct orqali kelgan mijozni CRM'ga yuborish uchun payload.
+    """
+
+    if timestamp:
+        date = datetime.fromtimestamp(
+            int(timestamp) / 1000,
+            tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        date = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    message = (
+        "Instagram Direct orqali yangi murojaat.\n\n"
+        f"Instagram username: @{username}\n"
+        f"Telefon: {phone}\n"
+        f"Mijoz xabari: {message_text}"
+    )
+
+    return {
+        "MusteriAdiSoyadi": username,
+        "PersonelID": 0,
+        "Email": "",
+        "Telefon": phone,
+        "IletisimAdresi": "",
+        "IletisimUlkeID": 0,
+        "IletisimSehir": "",
+        "IletisimIlce": "",
+        "IletisimSemt": "",
+        "MesajNotu": message,
+        "Tarih": date,
+        "MailIstiyorMu": False,
+        "MusteriKaynagiID": 16,
+        "InfoUrl": "",
+        "WebSitesi": "",
+        "MusteriID": 0,
+        "MusteriIletisimID": 0,
+        "BulunanMusteriID": 0,
+        "NetIp": "",
+        "InfoFormGelisYeri": "Instagram",
+        "InfoFormGelisYeri2": "Instagram Direct",
+        "DigerYazilimNo": f"igdm:{sender_id}:{phone}",
+        "UtmCode": "",
+        "KarakterAlan1": str(message_id or ""),
+        "KarakterAlan2": str(sender_id or ""),
+        "KarakterAlan3": str(recipient_id or ""),
+        "KarakterAlan4": "",
+        "KarakterAlan5": "",
+        "InfoFormTalepID": 1,
+        "EmailOnay": True,
+        "SmsOnay": False,
+        "TelOnay": False,
+        "InfoFormGelisYeri3": "",
+        "InfoFormGelisYeri4": "",
+        "InfoFormGelisYeri5": ""
+    }
